@@ -1,15 +1,19 @@
 (ns dominion-simulator.core)
 
+(def draw-count 5)
 
 (defn init-player
   "initialize player"
   [player-name strategy-fn]
-  {:name     player-name
-   :strategy strategy-fn
-   :hand     []
-   :discard  []
-   :draw     []
-   :in-play  []})
+  {:name           player-name
+   :strategy       strategy-fn
+   :hand           []
+   :discard        []
+   :draw           []
+   :in-play        []
+   :action-count   0
+   :buy-count      0
+   :treasure-count 0})
 
 (defn init-card
   "initialize card"
@@ -46,60 +50,54 @@
   [game-state]
   (first (:players game-state)))
 
+(defn update-player
+  "update game state to reflect new player state"
+  [game-state player updated-player-keys]
+  (assoc-in game-state [:players (:name player)]
+            (update-in player merge updated-player-keys)))
+
 (defn maybe-shuffle-draw-deck
-  [game-state player-index]
-  (let [player (get (:players game-state) player-index)]))
+  [game-state player]
+  (if (>= (count (:draw player)) draw-count)
+    game-state
+    (let [draw (conj (:draw player) (shuffle (:discard player)))]
+      (update-player game-state player {:discard [] :draw draw}))))
 
 (defn draw-hand
-  [game-state player-index]
-  ;; TODO
-  game-state)
+  [game-state player]
+  (let [hand (take draw-count (:draw player))
+        draw (drop draw-count (:draw player))]
+    (update-player game-state player {:hand hand :draw draw})))
 
 (defn discard-hand
-  [game-state player-index]
-  ;; TODO
-  game-state)
+  [game-state player]
+  (let [discard (conj (:discard player) (:hand player))]
+    (update-player game-state player {:discard discard :hand []})))
 
 
-(defn do-player-action-phase
-  [game-state player-index]
-  (let [player    (get (:players game-state) player-index)
-        action-fn (:action-fn player)]
-    (action-fn player game-state)))
-
-
-(defn do-player-buy-phase
-  [game-state player-index]
-  (let [player (get (:players game-state) player-index)
-        buy-fn (:buy-fn player)]
-    (buy-fn player game-state)))
-
-(defn do-player-cleanup-phase
+(defn turn-cleanup-phase
   "given a game state, simulate turn of a single player and return next game state"
-  [game-state player-index]
-  (let [player (get (:players game-state) player-index)]
-    (-> game-state
-        (discard-hand player-index)
-        (maybe-shuffle-draw-deck player-index)
-        (draw-hand player-index))))
+  [game-state player]
+  (-> game-state
+      (discard-hand player)
+      (maybe-shuffle-draw-deck player)
+      (draw-hand player)))
 
 (defn do-player-turn
 "given a game state, simulate turn of a single player and return next game state"
-[game-state player-index]
-(let [player (get (:players game-state) player-index)]
-  (-> game-state
-      (do-player-action-phase player-index)
-      (do-player-buy-phase player-index)
-      (do-player-cleanup-phase player-index))))
+[game-state player]
+(-> game-state
+    (:action-fn player)
+    (:buy-fn player)
+    (turn-cleanup-phase player)))
 
 (defn do-turn
 "given a game state, simulate turn of all players and return next game state"
 [game-state]
-(loop [players           (:players game-state)
-       curr-player-index 0]
-  (if (= curr-player-index (- (count players) 1))
+(loop [players (vals (:players game-state))]
+  (if (empty? players)
     game-state
-    (recur (do-player-turn game-state curr-player-index) (+ curr-player-index 1)))))
+    (recur (do-player-turn game-state (first players)) (rest players)))))
 
 (defn setup-game
 "perform required setup prior to player turns"
